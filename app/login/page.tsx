@@ -20,7 +20,7 @@ export default async function LoginPage() {
         <div className="flex flex-col items-center space-y-2 text-center">
           <Link href="/" className="flex items-center gap-2 font-bold text-2xl text-primary">
             <Activity className="h-8 w-8" />
-            <span>FitTrack</span>
+            <span>Fitosha</span>
           </Link>
           <h1 className="text-2xl font-bold">Welcome back</h1>
           <p className="text-sm text-muted-foreground">Enter your email and password to sign in to your account</p>

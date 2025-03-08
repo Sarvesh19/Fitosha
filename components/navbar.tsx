@@ -27,7 +27,7 @@ export function Navbar({ userEmail }: { userEmail: string }) {
       <div className="container flex h-16 items-center px-4 sm:px-6 lg:px-8">
         <Link href="/dashboard" className="flex items-center gap-2 font-bold text-xl text-primary">
           <Activity className="h-6 w-6" />
-          <span>FitTrack</span>
+          <span>Fitosha</span>
         </Link>
         <nav className="ml-auto flex items-center gap-4 sm:gap-6">
           <Link

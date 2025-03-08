@@ -8,7 +8,7 @@ import { ThemeProvider } from "@/components/theme-provider"
 const inter = Inter({ subsets: ["latin"] })
 
 export const metadata: Metadata = {
-  title: "FitTrack - Track Your Walks and Jogs",
+  title: "Fitosha - Track Your Walks and Jogs",
   description: "A web app to track your walking and jogging activities",
     generator: 'v0.dev'
 }
