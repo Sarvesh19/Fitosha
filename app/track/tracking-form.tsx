@@ -31,12 +31,23 @@ export function TrackingForm({ userId }: TrackingFormProps) {
   const [isLoading, setIsLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [permissionStatus, setPermissionStatus] = useState<PermissionState | null>(null)
+  const [firstPositionSet, setFirstPositionSet] = useState(false)
 
   const watchIdRef = useRef<number | null>(null)
   const timerRef = useRef<NodeJS.Timeout | null>(null)
   const router = useRouter()
   const { toast } = useToast()
   const supabase = createClient()
+
+  // Recalculate distance whenever positions change
+  useEffect(() => {
+    if (positions.length >= 2) {
+      const newDistance = calculateDistance(positions)
+      setDistance(newDistance)
+    } else {
+      setDistance(0)
+    }
+  }, [positions])
 
   useEffect(() => {
     if ("permissions" in navigator) {
@@ -58,6 +69,8 @@ export function TrackingForm({ userId }: TrackingFormProps) {
 
   const startTracking = async () => {
     setError(null)
+    setFirstPositionSet(false)
+    setPositions([])
 
     if (!navigator.geolocation) {
       setError("Geolocation is not supported by your browser")
@@ -70,23 +83,41 @@ export function TrackingForm({ userId }: TrackingFormProps) {
     }
 
     try {
+      let stabilizedPosition: [number, number] | null = null
       await new Promise((resolve, reject) => {
-        navigator.geolocation.getCurrentPosition(
-          resolve,
-          reject,
-          {
-            enableHighAccuracy: true,
-            timeout: 10000,
-            maximumAge: 0,
-          }
-        )
+        let attempts = 0
+        const maxAttempts = 3
+        const interval = setInterval(() => {
+          navigator.geolocation.getCurrentPosition(
+            (position) => {
+              const { latitude, longitude, accuracy } = position.coords
+              if (accuracy < 50 || attempts === maxAttempts - 1) {
+                stabilizedPosition = [latitude, longitude]
+                clearInterval(interval)
+                resolve(stabilizedPosition)
+              }
+              attempts++
+            },
+            reject,
+            {
+              enableHighAccuracy: true,
+              timeout: 5000,
+              maximumAge: 0,
+            }
+          )
+        }, 2000)
       })
+
+      if (!stabilizedPosition) {
+        throw new Error("Failed to stabilize initial position")
+      }
 
       setIsTracking(true)
       setStartTime(new Date())
-      setPositions([])
+      setPositions([stabilizedPosition])
       setDistance(0)
       setElapsedTime(0)
+      setFirstPositionSet(true)
 
       timerRef.current = setInterval(() => {
         setElapsedTime((prev) => prev + 1)
@@ -97,24 +128,20 @@ export function TrackingForm({ userId }: TrackingFormProps) {
           const { latitude, longitude, accuracy } = position.coords
           console.log('Position update:', { latitude, longitude, accuracy, timestamp: position.timestamp })
 
-          setPositions((prev) => {
-            // If this is the first position, add it directly
+          setPositions((prev: any) => {
             if (prev.length === 0) {
               return [[latitude, longitude]]
             }
 
-            // Calculate distance from the last position
             const lastPosition = prev[prev.length - 1]
             const segmentDistance = calculateDistance([lastPosition, [latitude, longitude]])
+            console.log('Segment distance:', segmentDistance)
 
-            // Only add the new position if the movement is significant (e.g., more than 5 meters)
-            if (segmentDistance < 5) {
-              return prev // Skip this update
+            if (segmentDistance < 5 && prev.length > 1) {
+              return prev
             }
 
-            const newPositions: any = [...prev, [latitude, longitude]]
-            const newDistance = calculateDistance(newPositions)
-            setDistance(newDistance)
+            const newPositions = [...prev, [latitude, longitude]]
             return newPositions
           })
         },
@@ -186,6 +213,7 @@ export function TrackingForm({ userId }: TrackingFormProps) {
       setPositions([])
       setDistance(0)
       setElapsedTime(0)
+      setFirstPositionSet(false)
       router.refresh()
     } catch (error: any) {
       toast({
