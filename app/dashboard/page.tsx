@@ -18,7 +18,7 @@ export default async function DashboardPage() {
   const { data: workouts } = await supabase
     .from("workouts")
     .select("*")
-    .eq("user_id", user.id)
+    .eq("user_id", user.id as any)
     .order("start_time", { ascending: false })
 
   return (

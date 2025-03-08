@@ -94,17 +94,30 @@ export function TrackingForm({ userId }: TrackingFormProps) {
       let stabilizedPosition: [number, number] | null = null
       await new Promise((resolve, reject) => {
         let attempts = 0
-        const maxAttempts = 3
+        const maxAttempts = 5
+        let lastPosition: [number, number] | null = null
         const interval = setInterval(() => {
           navigator.geolocation.getCurrentPosition(
             (position) => {
               const { latitude, longitude, accuracy } = position.coords
-              if (accuracy < 50 || attempts === maxAttempts - 1) {
-                stabilizedPosition = [latitude, longitude]
+              const newPosition: [number, number] = [latitude, longitude]
+
+              // Require accuracy < 30 meters and stability within 5m
+              if (accuracy < 30) {
+                if (lastPosition && calculateDistance([lastPosition, newPosition]) < 5) {
+                  stabilizedPosition = newPosition
+                  clearInterval(interval)
+                  resolve(stabilizedPosition)
+                }
+                lastPosition = newPosition
+              }
+
+              attempts++
+              if (attempts >= maxAttempts) {
+                stabilizedPosition = lastPosition || [latitude, longitude]
                 clearInterval(interval)
                 resolve(stabilizedPosition)
               }
-              attempts++
             },
             reject,
             {
@@ -135,15 +148,20 @@ export function TrackingForm({ userId }: TrackingFormProps) {
         (position) => {
           const { latitude, longitude, accuracy, speed } = position.coords
           const currentTime = Date.now()
-          const timeDiff = (currentTime - lastUpdateTime) / 1000 // Time difference in seconds
+          const timeDiff = (currentTime - lastUpdateTime) / 1000
           setLastUpdateTime(currentTime)
 
           console.log('Position update:', { latitude, longitude, accuracy, speed, timestamp: position.timestamp })
 
+          // Skip if accuracy is too low
+          if (accuracy > 50) {
+            console.log(`Accuracy too low: ${accuracy}m - skipping`)
+            return
+          }
+
           const newPosition: [number, number] = [latitude, longitude]
           const speedThreshold = SPEED_THRESHOLDS[activityType as keyof typeof SPEED_THRESHOLDS]
 
-          // Skip if speed exceeds threshold (unless activity is "Drive")
           if (speed !== null && speed > speedThreshold && activityType !== "Drive") {
             console.log(`Speed ${speed} m/s exceeds ${speedThreshold} m/s for ${activityType} - skipping`)
             return
@@ -156,11 +174,16 @@ export function TrackingForm({ userId }: TrackingFormProps) {
 
             const lastPosition = prev[prev.length - 1]
             const segmentDistance = calculateDistance([lastPosition, newPosition])
-            const estimatedSpeed = timeDiff > 0 ? segmentDistance / timeDiff : 0 // meters per second
+            const estimatedSpeed = timeDiff > 0 ? segmentDistance / timeDiff : 0
 
-            // Dynamic distance threshold based on speed or activity
-            const distanceThreshold = estimatedSpeed > 5 ? 50 : 5 // 50m for high speed, 5m for walking/jogging
+            // Prevent initial spikes for Walk: limit jumps to 10m in first 5 positions
+            if (activityType === "Walk" && segmentDistance > 10 && prev.length < 5) {
+              console.log(`Initial distance jump too large: ${segmentDistance}m - skipping`)
+              return prev
+            }
 
+            // Dynamic distance threshold
+            const distanceThreshold = estimatedSpeed > 5 ? 50 : 5
             if (segmentDistance < distanceThreshold && prev.length > 1) {
               return prev
             }

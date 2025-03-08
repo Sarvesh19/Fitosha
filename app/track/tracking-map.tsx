@@ -105,7 +105,7 @@ export default function TrackingMap({ positions, isTracking, setPositions }: Tra
       })
       L.marker(initialPosition, { icon: userLocationIcon })
         .addTo(map)
-        .bindPopup("Your current location")
+       // .bindPopup("Your current location")
         .openPopup()
       return
     }
