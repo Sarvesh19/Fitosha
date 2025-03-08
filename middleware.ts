@@ -1,51 +1,42 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { createServerClient } from "@supabase/ssr";
+import { cookies } from "next/headers";
 
 export async function middleware(request: NextRequest) {
   const { pathname } = request.nextUrl;
 
-  // Skip middleware for public routes and API routes
-  if (
-    pathname.startsWith("/_next") ||
-    pathname.startsWith("/api") ||
-    pathname.startsWith("/auth") ||
-    pathname === "/" ||
-    pathname === "/login" ||
-    pathname === "/signup"
-  ) {
+  // Skip middleware for public routes
+  if (pathname.startsWith("/_next") || pathname.startsWith("/api") || pathname === "/login") {
     return NextResponse.next();
   }
 
-  let response = NextResponse.next();
+  const cookieStore = await cookies(); // ✅ Get cookies synchronously
+
   const supabase = createServerClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
     process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
     {
       cookies: {
         get(name) {
-          return request.cookies.get(name)?.value || "";
+          return cookieStore.get(name)?.value || "";
         },
         set(name, value, options) {
-          response.cookies.set(name, value, options);
+          cookieStore.set(name, value, options);
         },
         remove(name) {
-          response.cookies.set(name, "", { maxAge: -1 });
+          cookieStore.set(name, "", { maxAge: -1 });
         },
       },
     }
   );
 
-  const {
-    data: { session },
-  } = await supabase.auth.getSession();
+  const { data: { session } } = await supabase.auth.getSession();
 
-  // If no session, redirect to login
   if (!session) {
-    const redirectUrl = new URL("/login", request.url);
-    return NextResponse.redirect(redirectUrl);
+    return NextResponse.redirect(new URL("/login", request.url));
   }
 
-  return response;
+  return NextResponse.next();
 }
 
 export const config = {
