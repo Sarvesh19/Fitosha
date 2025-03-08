@@ -1,3 +1,4 @@
+// tracking-map.tsx
 import { useEffect, useRef, useState } from "react"
 import L from "leaflet"
 import "leaflet/dist/leaflet.css"
@@ -15,11 +16,10 @@ export default function TrackingMap({ positions, isTracking }: TrackingMapProps)
   const [initialPosition, setInitialPosition] = useState<[number, number] | null>(null)
   const [error, setError] = useState<string | null>(null)
 
-  // Get user's initial position when component mounts
   useEffect(() => {
     if (!navigator.geolocation) {
       setError("Geolocation is not supported by your browser")
-      setInitialPosition([51.505, -0.09]) // Fallback to London
+      setInitialPosition([51.505, -0.09])
       return
     }
 
@@ -29,7 +29,7 @@ export default function TrackingMap({ positions, isTracking }: TrackingMapProps)
       },
       (err) => {
         setError(`Failed to get location: ${err.message}. Using default location.`)
-        setInitialPosition([51.505, -0.09]) // Fallback to London
+        setInitialPosition([51.505, -0.09])
       },
       {
         enableHighAccuracy: true,
@@ -42,7 +42,6 @@ export default function TrackingMap({ positions, isTracking }: TrackingMapProps)
   useEffect(() => {
     if (!mapRef.current || !initialPosition) return
 
-    // Initialize map if it doesn't exist
     if (!mapInstanceRef.current) {
       mapInstanceRef.current = L.map(mapRef.current).setView(initialPosition, 13)
 
@@ -53,10 +52,8 @@ export default function TrackingMap({ positions, isTracking }: TrackingMapProps)
 
     const map = mapInstanceRef.current
 
-    // If we're not tracking and no positions are provided, center on user's location
     if (!isTracking && positions.length === 0) {
       map.setView(initialPosition, 13)
-      // Add a marker for the user's current location
       const userLocationIcon = L.divIcon({
         html: `<div class="bg-blue-500 rounded-full p-1 border-2 border-white" style="width: 12px; height: 12px;"></div>`,
         className: "custom-div-icon",
@@ -68,22 +65,14 @@ export default function TrackingMap({ positions, isTracking }: TrackingMapProps)
       return
     }
 
-    // Update the map with the current positions when tracking
     if (positions.length > 0) {
-      // Clear existing polyline
-      if (polylineRef.current) {
-        map.removeLayer(polylineRef.current)
-      }
-
-      // Clear existing markers
+      if (polylineRef.current) map.removeLayer(polylineRef.current)
       markersRef.current.forEach((marker) => map.removeLayer(marker))
       markersRef.current = []
 
-      // Create new polyline
       const latLngs = positions.map((pos) => [pos[0], pos[1]] as L.LatLngExpression)
       polylineRef.current = L.polyline(latLngs, { color: "blue", weight: 5 }).addTo(map)
 
-      // Add start marker
       const startIcon = L.divIcon({
         html: `<div class="bg-green-500 rounded-full p-1 border-2 border-white" style="width: 12px; height: 12px;"></div>`,
         className: "custom-div-icon",
@@ -91,7 +80,6 @@ export default function TrackingMap({ positions, isTracking }: TrackingMapProps)
       const startMarker = L.marker(latLngs[0], { icon: startIcon }).addTo(map)
       markersRef.current.push(startMarker)
 
-      // Add current position marker
       const currentIcon = L.divIcon({
         html: `<div class="bg-red-500 rounded-full p-1 border-2 border-white" style="width: 12px; height: 12px;"></div>`,
         className: "custom-div-icon",
@@ -99,7 +87,6 @@ export default function TrackingMap({ positions, isTracking }: TrackingMapProps)
       const currentMarker = L.marker(latLngs[latLngs.length - 1], { icon: currentIcon }).addTo(map)
       markersRef.current.push(currentMarker)
 
-      // Fit map to the route bounds or center on current position
       if (positions.length > 1) {
         map.fitBounds(polylineRef.current.getBounds(), { padding: [30, 30] })
       } else {
@@ -107,9 +94,7 @@ export default function TrackingMap({ positions, isTracking }: TrackingMapProps)
       }
     }
 
-    return () => {
-      // No need to destroy the map on unmount, we'll reuse it
-    }
+    return () => {}
   }, [positions, isTracking, initialPosition])
 
   return (

@@ -1,3 +1,4 @@
+// tracking-form.tsx
 "use client"
 
 import { useState, useEffect, useRef } from "react"
@@ -37,7 +38,6 @@ export function TrackingForm({ userId }: TrackingFormProps) {
   const { toast } = useToast()
   const supabase = createClient()
 
-  // Check location permission status on mount
   useEffect(() => {
     if ("permissions" in navigator) {
       navigator.permissions.query({ name: "geolocation" }).then((result) => {
@@ -94,14 +94,27 @@ export function TrackingForm({ userId }: TrackingFormProps) {
 
       watchIdRef.current = navigator.geolocation.watchPosition(
         (position) => {
-          const { latitude, longitude } = position.coords
-          console.log('Position update:', { latitude, longitude, timestamp: position.timestamp })
+          const { latitude, longitude, accuracy } = position.coords
+          console.log('Position update:', { latitude, longitude, accuracy, timestamp: position.timestamp })
+
           setPositions((prev) => {
-            const newPositions: [number, number][] = [...prev, [latitude, longitude]]
-            if (newPositions.length >= 2) {
-              const newDistance = calculateDistance(newPositions)
-              setDistance(newDistance)
+            // If this is the first position, add it directly
+            if (prev.length === 0) {
+              return [[latitude, longitude]]
             }
+
+            // Calculate distance from the last position
+            const lastPosition = prev[prev.length - 1]
+            const segmentDistance = calculateDistance([lastPosition, [latitude, longitude]])
+
+            // Only add the new position if the movement is significant (e.g., more than 5 meters)
+            if (segmentDistance < 5) {
+              return prev // Skip this update
+            }
+
+            const newPositions: any = [...prev, [latitude, longitude]]
+            const newDistance = calculateDistance(newPositions)
+            setDistance(newDistance)
             return newPositions
           })
         },
