@@ -1,4 +1,3 @@
-// tracking-form.tsx
 "use client"
 
 import { useState, useEffect, useRef } from "react"
@@ -32,13 +31,20 @@ export function TrackingForm({ userId }: TrackingFormProps) {
   const [error, setError] = useState<string | null>(null)
   const [permissionStatus, setPermissionStatus] = useState<PermissionState | null>(null)
   const [firstPositionSet, setFirstPositionSet] = useState(false)
-  const [lastUpdateTime, setLastUpdateTime] = useState<number>(Date.now()) // Track last update timestamp
+  const [lastUpdateTime, setLastUpdateTime] = useState<number>(Date.now())
 
   const watchIdRef = useRef<number | null>(null)
   const timerRef = useRef<NodeJS.Timeout | null>(null)
   const router = useRouter()
   const { toast } = useToast()
   const supabase = createClient()
+
+  // Speed thresholds in m/s
+  const SPEED_THRESHOLDS = {
+    Walk: 2, // ~7.2 km/h
+    Jog: 5,  // ~18 km/h
+    Drive: Infinity, // No limit for driving
+  }
 
   // Recalculate distance whenever positions change
   useEffect(() => {
@@ -127,31 +133,39 @@ export function TrackingForm({ userId }: TrackingFormProps) {
 
       watchIdRef.current = navigator.geolocation.watchPosition(
         (position) => {
-          const { latitude, longitude, accuracy } = position.coords
+          const { latitude, longitude, accuracy, speed } = position.coords
           const currentTime = Date.now()
           const timeDiff = (currentTime - lastUpdateTime) / 1000 // Time difference in seconds
           setLastUpdateTime(currentTime)
 
-          console.log('Position update:', { latitude, longitude, accuracy, timestamp: position.timestamp })
+          console.log('Position update:', { latitude, longitude, accuracy, speed, timestamp: position.timestamp })
+
+          const newPosition: [number, number] = [latitude, longitude]
+          const speedThreshold = SPEED_THRESHOLDS[activityType as keyof typeof SPEED_THRESHOLDS]
+
+          // Skip if speed exceeds threshold (unless activity is "Drive")
+          if (speed !== null && speed > speedThreshold && activityType !== "Drive") {
+            console.log(`Speed ${speed} m/s exceeds ${speedThreshold} m/s for ${activityType} - skipping`)
+            return
+          }
 
           setPositions((prev) => {
             if (prev.length === 0) {
-              return [[latitude, longitude]]
+              return [newPosition]
             }
 
             const lastPosition = prev[prev.length - 1]
-            const segmentDistance = calculateDistance([lastPosition, [latitude, longitude]])
-            const estimatedSpeed = segmentDistance / timeDiff // meters per second
-            console.log('Segment distance:', segmentDistance, 'Estimated speed:', estimatedSpeed)
+            const segmentDistance = calculateDistance([lastPosition, newPosition])
+            const estimatedSpeed = timeDiff > 0 ? segmentDistance / timeDiff : 0 // meters per second
 
-            // Dynamic threshold based on estimated speed
-            const distanceThreshold = estimatedSpeed > 5 ? 50 : 5 // 50m for driving (>5 m/s), 5m for walking/jogging
+            // Dynamic distance threshold based on speed or activity
+            const distanceThreshold = estimatedSpeed > 5 ? 50 : 5 // 50m for high speed, 5m for walking/jogging
 
             if (segmentDistance < distanceThreshold && prev.length > 1) {
               return prev
             }
 
-            return [...prev, [latitude, longitude]]
+            return [...prev, newPosition]
           })
         },
         (err) => {
@@ -172,8 +186,8 @@ export function TrackingForm({ userId }: TrackingFormProps) {
         },
         {
           enableHighAccuracy: true,
-          timeout: 5000, // Faster updates for driving
-          maximumAge: 1000, // Accept updates up to 1 second old
+          timeout: 5000,
+          maximumAge: 1000,
         }
       )
     } catch (err: any) {
@@ -265,7 +279,7 @@ export function TrackingForm({ userId }: TrackingFormProps) {
                 <SelectContent>
                   <SelectItem value="Walk">Walk</SelectItem>
                   <SelectItem value="Jog">Jog</SelectItem>
-                  <SelectItem value="Drive">Drive</SelectItem> {/* Added Drive option */}
+                  <SelectItem value="Drive">Drive</SelectItem>
                 </SelectContent>
               </Select>
             </div>
@@ -317,7 +331,7 @@ export function TrackingForm({ userId }: TrackingFormProps) {
         </CardHeader>
         <CardContent>
           <div className="h-[400px] w-full rounded-md border overflow-hidden">
-            <TrackingMap positions={positions} isTracking={isTracking} />
+            <TrackingMap positions={positions} isTracking={isTracking} setPositions={setPositions} />
           </div>
         </CardContent>
       </Card>
