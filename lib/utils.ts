@@ -13,49 +13,69 @@ export function formatDate(date: string | Date) {
   })
 }
 
-// lib/utils.ts
 export function formatTime(seconds: number): string {
-  const h = Math.floor(seconds / 3600)
-  const m = Math.floor((seconds % 3600) / 60)
-  const s = seconds % 60
-  return `${h.toString().padStart(2, '0')}:${m.toString().padStart(2, '0')}:${s.toString().padStart(2, '0')}`
+  const hours = Math.floor(seconds / 3600);
+  const minutes = Math.floor((seconds % 3600) / 60);
+  const secs = seconds % 60;
+  return `${hours.toString().padStart(2, "0")}:${minutes.toString().padStart(2, "0")}:${secs.toString().padStart(2, "0")}`;
 }
 
-export function formatDistance(meters: number): string {
-  if (meters < 1000) {
-    return `${Math.round(meters)} m`
+/**
+ * Format distance in meters to kilometers or meters.
+ */
+export function formatDistance(distance: number): string {
+  if (distance >= 1000) {
+    return `${(distance / 1000).toFixed(2)} km`;
   }
-  return `${(meters / 1000).toFixed(2)} km`
+  return `${distance.toFixed(0)} m`;
 }
 
 export function calculateDistance(positions: [number, number][]): number {
-  if (positions.length < 2) return 0
-
-  const R = 6371e3 // Earth's radius in meters
-  let totalDistance = 0
-
+  let totalDistance = 0;
   for (let i = 1; i < positions.length; i++) {
-    const [lat1, lon1] = positions[i - 1]
-    const [lat2, lon2] = positions[i]
-
-    const φ1 = (lat1 * Math.PI) / 180
-    const φ2 = (lat2 * Math.PI) / 180
-    const Δφ = ((lat2 - lat1) * Math.PI) / 180
-    const Δλ = ((lon2 - lon1) * Math.PI) / 180
+    const [lat1, lon1] = positions[i - 1];
+    const [lat2, lon2] = positions[i];
+    const R = 6371e3; // Earth's radius in meters
+    const φ1 = (lat1 * Math.PI) / 180;
+    const φ2 = (lat2 * Math.PI) / 180;
+    const Δφ = ((lat2 - lat1) * Math.PI) / 180;
+    const Δλ = ((lon2 - lon1) * Math.PI) / 180;
 
     const a =
       Math.sin(Δφ / 2) * Math.sin(Δφ / 2) +
-      Math.cos(φ1) * Math.cos(φ2) * Math.sin(Δλ / 2) * Math.sin(Δλ / 2)
-    const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a))
+      Math.cos(φ1) * Math.cos(φ2) * Math.sin(Δλ / 2) * Math.sin(Δλ / 2);
+    const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
 
-    const segmentDistance = R * c
+    totalDistance += R * c;
+  }
+  return totalDistance;
+}
 
-    if (segmentDistance > 1) {
-      totalDistance += segmentDistance
+export function smoothPositions(positions: [number, number][], windowSize: number = 3): [number, number][] {
+  if (positions.length <= windowSize) return positions;
+
+  const smoothedPositions: [number, number][] = [];
+
+  for (let i = 0; i < positions.length; i++) {
+    const start = Math.max(0, i - Math.floor(windowSize / 2));
+    const end = Math.min(positions.length, i + Math.ceil(windowSize / 2));
+
+    let sumLat = 0;
+    let sumLon = 0;
+    let count = 0;
+
+    for (let j = start; j < end; j++) {
+      sumLat += positions[j][0];
+      sumLon += positions[j][1];
+      count++;
     }
+
+    const avgLat = sumLat / count;
+    const avgLon = sumLon / count;
+    smoothedPositions.push([avgLat, avgLon]);
   }
 
-  return Number(totalDistance.toFixed(2))
+  return smoothedPositions;
 }
 
 // Calculate distance between two points using the Haversine formula

@@ -17,7 +17,6 @@ export default function TrackingMap({ positions, isTracking, setPositions }: Tra
   const [error, setError] = useState<string | null>(null)
   const watchIdRef = useRef<number | null>(null)
 
-  // Speed threshold in m/s (e.g., 5 m/s ≈ 18 km/h, above jogging speed)
   const DRIVING_SPEED_THRESHOLD = 5
 
   useEffect(() => {
@@ -52,13 +51,11 @@ export default function TrackingMap({ positions, isTracking, setPositions }: Tra
       return
     }
 
-    // Start watching position when tracking is enabled
     watchIdRef.current = navigator.geolocation.watchPosition(
       (position) => {
-        const speed = position.coords.speed // Speed in meters per second
+        const speed = position.coords.speed
         const newPos: [number, number] = [position.coords.latitude, position.coords.longitude]
 
-        // Only add position if speed is below driving threshold or unavailable
         if (speed === null || speed <= DRIVING_SPEED_THRESHOLD) {
           setPositions((prev) => [...prev, newPos])
         } else {
@@ -75,7 +72,6 @@ export default function TrackingMap({ positions, isTracking, setPositions }: Tra
       }
     )
 
-    // Cleanup watchPosition on unmount or when isTracking becomes false
     return () => {
       if (watchIdRef.current !== null) {
         navigator.geolocation.clearWatch(watchIdRef.current)
@@ -105,7 +101,6 @@ export default function TrackingMap({ positions, isTracking, setPositions }: Tra
       })
       L.marker(initialPosition, { icon: userLocationIcon })
         .addTo(map)
-       // .bindPopup("Your current location")
         .openPopup()
       return
     }
@@ -150,4 +145,4 @@ export default function TrackingMap({ positions, isTracking, setPositions }: Tra
       )}
     </div>
   )
-}
+} 

@@ -7,7 +7,7 @@ import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle }
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { createClient } from "@/lib/supabase/client"
 import { useToast } from "@/hooks/use-toast"
-import { formatTime, formatDistance, calculateDistance } from "@/lib/utils"
+import { formatTime, formatDistance, calculateDistance, smoothPositions } from "@/lib/utils"
 import { Play, Square, Timer, Route } from "lucide-react"
 import dynamic from "next/dynamic"
 
@@ -46,10 +46,8 @@ export function TrackingForm({ userId }: TrackingFormProps) {
     Drive: Infinity,
   }
 
-  // New: Minimum distance to consider a position update when stationary
   const MIN_STATIONARY_DISTANCE = 20 // meters
 
-  // Recalculate distance
   useEffect(() => {
     if (positions.length >= 2) {
       const newDistance = calculateDistance(positions)
@@ -64,7 +62,6 @@ export function TrackingForm({ userId }: TrackingFormProps) {
     }
   }, [positions, elapsedTime, activityType])
 
-  // Handle permissions and cleanup
   useEffect(() => {
     if ("permissions" in navigator) {
       navigator.permissions.query({ name: "geolocation" }).then((result) => {
@@ -177,7 +174,6 @@ export function TrackingForm({ userId }: TrackingFormProps) {
 
           console.log('Position update:', { latitude, longitude, accuracy, speed, timestamp: position.timestamp })
 
-          // Stricter accuracy filter: > 20m ignored (tightened from 30m)
           if (accuracy > 20) {
             console.log(`Accuracy too low: ${accuracy}m - skipping`)
             return
@@ -196,14 +192,12 @@ export function TrackingForm({ userId }: TrackingFormProps) {
           const estimatedSpeed = timeDiff > 0 ? segmentDistance / timeDiff : 0
           console.log(`Segment distance: ${segmentDistance}m, Estimated speed: ${estimatedSpeed} m/s`)
 
-          // Speed threshold check
           const speedThreshold = SPEED_THRESHOLDS[activityType as keyof typeof SPEED_THRESHOLDS]
           if (speed !== null && speed > speedThreshold && activityType !== "Drive") {
             console.log(`Speed ${speed} m/s exceeds ${speedThreshold} m/s for ${activityType} - skipping`)
             return
           }
 
-          // New: Stationary detection
           const isLikelyStationary = (speed !== null && speed < 0.2) || (estimatedSpeed < 0.5 && segmentDistance < MIN_STATIONARY_DISTANCE)
 
           if (isLikelyStationary && positions.length > 1) {
@@ -211,13 +205,11 @@ export function TrackingForm({ userId }: TrackingFormProps) {
             return
           }
 
-          // Prevent initial spikes: limit jumps to 5m in first 5 positions for Walk
           if (activityType === "Walk" && segmentDistance > 5 && positions.length < 5) {
             console.log(`Initial distance jump too large: ${segmentDistance}m - skipping`)
             return
           }
 
-          // Higher distance threshold to filter out noise
           const distanceThreshold = estimatedSpeed > 5 ? 50 : MIN_STATIONARY_DISTANCE
           if (segmentDistance < distanceThreshold && positions.length > 1) {
             console.log(`Distance ${segmentDistance}m below threshold ${distanceThreshold}m - skipping`)
