@@ -35,23 +35,24 @@ export function TrackingForm({ userId }: TrackingFormProps) {
 
   const watchIdRef = useRef<number | null>(null)
   const timerRef = useRef<NodeJS.Timeout | null>(null)
-  const lastStablePositionRef = useRef<[number, number] | null>(null) // To track the last stable position
+  const lastStablePositionRef = useRef<[number, number] | null>(null)
   const router = useRouter()
   const { toast } = useToast()
   const supabase = createClient()
 
-  // Speed thresholds in m/s
   const SPEED_THRESHOLDS = {
     Walk: 2, // ~7.2 km/h
     Jog: 5,  // ~18 km/h
-    Drive: Infinity, // No limit for driving
+    Drive: Infinity,
   }
 
-  // Recalculate distance with a stricter sanity check
+  // New: Minimum distance to consider a position update when stationary
+  const MIN_STATIONARY_DISTANCE = 20 // meters
+
+  // Recalculate distance
   useEffect(() => {
     if (positions.length >= 2) {
       const newDistance = calculateDistance(positions)
-      // Stricter sanity check: Reset if distance jumps > 20m in first 30s for Walk
       if (newDistance > 20 && elapsedTime < 30 && activityType === "Walk") {
         console.log("Unrealistic distance detected, resetting:", newDistance)
         setDistance(0)
@@ -84,7 +85,7 @@ export function TrackingForm({ userId }: TrackingFormProps) {
 
   const startTracking = async () => {
     setError(null)
-    setIsLoading(true) // Set loading to true when starting the process
+    setIsLoading(true)
     setFirstPositionSet(false)
     setPositions([])
     setLastUpdateTime(Date.now())
@@ -92,13 +93,13 @@ export function TrackingForm({ userId }: TrackingFormProps) {
 
     if (!navigator.geolocation) {
       setError("Geolocation is not supported by your browser")
-      setIsLoading(false) // Reset loading if there's an immediate error
+      setIsLoading(false)
       return
     }
 
     if (permissionStatus === "denied") {
       setError("Location permission has been denied. Please enable it in your browser settings.")
-      setIsLoading(false) // Reset loading if permission is denied
+      setIsLoading(false)
       return
     }
 
@@ -106,9 +107,9 @@ export function TrackingForm({ userId }: TrackingFormProps) {
       let stabilizedPosition: [number, number] | null = null
       await new Promise((resolve, reject) => {
         let attempts = 0
-        const maxAttempts = 10 // Increased attempts for better stability
-        let stableCount = 0 // Count consecutive stable readings
-        const requiredStableCount = 3 // Require 3 stable readings
+        const maxAttempts = 10
+        let stableCount = 0
+        const requiredStableCount = 3
         let lastPosition: [number, number] | null = null
 
         const interval = setInterval(() => {
@@ -118,19 +119,16 @@ export function TrackingForm({ userId }: TrackingFormProps) {
               const newPosition: [number, number] = [latitude, longitude]
               console.log(`Attempt ${attempts + 1}: Position = [${latitude}, ${longitude}], Accuracy = ${accuracy}m`)
 
-              // Stricter accuracy: < 15m
               if (accuracy < 15) {
                 if (lastPosition && calculateDistance([lastPosition, newPosition]) < 5) {
                   stableCount++
-                  console.log(`Stable reading #${stableCount}`)
                   if (stableCount >= requiredStableCount) {
                     stabilizedPosition = newPosition
                     clearInterval(interval)
-                    console.log("Stabilized position:", stabilizedPosition)
                     resolve(stabilizedPosition)
                   }
                 } else {
-                  stableCount = 1 // Reset if not stable
+                  stableCount = 1
                 }
                 lastPosition = newPosition
               }
@@ -139,7 +137,6 @@ export function TrackingForm({ userId }: TrackingFormProps) {
               if (attempts >= maxAttempts) {
                 stabilizedPosition = lastPosition || [latitude, longitude]
                 clearInterval(interval)
-                console.log("Max attempts reached, using:", stabilizedPosition)
                 resolve(stabilizedPosition)
               }
             },
@@ -180,53 +177,55 @@ export function TrackingForm({ userId }: TrackingFormProps) {
 
           console.log('Position update:', { latitude, longitude, accuracy, speed, timestamp: position.timestamp })
 
-          // Stricter accuracy filter: > 30m ignored
-          if (accuracy > 30) {
+          // Stricter accuracy filter: > 20m ignored (tightened from 30m)
+          if (accuracy > 20) {
             console.log(`Accuracy too low: ${accuracy}m - skipping`)
             return
           }
 
-          // Skip if speed is near zero and we have prior positions
-          if (speed !== null && speed < 0.1 && positions.length > 1) {
-            console.log(`Speed ${speed} m/s too low - skipping`)
+          const newPosition: [number, number] = [latitude, longitude]
+          const lastPosition = lastStablePositionRef.current || (positions.length > 0 ? positions[positions.length - 1] : null)
+
+          if (!lastPosition) {
+            lastStablePositionRef.current = newPosition
+            setPositions([newPosition])
             return
           }
 
-          const newPosition: [number, number] = [latitude, longitude]
-          const speedThreshold = SPEED_THRESHOLDS[activityType as keyof typeof SPEED_THRESHOLDS]
+          const segmentDistance = calculateDistance([lastPosition, newPosition])
+          const estimatedSpeed = timeDiff > 0 ? segmentDistance / timeDiff : 0
+          console.log(`Segment distance: ${segmentDistance}m, Estimated speed: ${estimatedSpeed} m/s`)
 
+          // Speed threshold check
+          const speedThreshold = SPEED_THRESHOLDS[activityType as keyof typeof SPEED_THRESHOLDS]
           if (speed !== null && speed > speedThreshold && activityType !== "Drive") {
             console.log(`Speed ${speed} m/s exceeds ${speedThreshold} m/s for ${activityType} - skipping`)
             return
           }
 
-          setPositions((prev) => {
-            if (prev.length === 0) {
-              lastStablePositionRef.current = newPosition
-              return [newPosition]
-            }
+          // New: Stationary detection
+          const isLikelyStationary = (speed !== null && speed < 0.2) || (estimatedSpeed < 0.5 && segmentDistance < MIN_STATIONARY_DISTANCE)
 
-            const lastPosition = lastStablePositionRef.current || prev[prev.length - 1]
-            const segmentDistance = calculateDistance([lastPosition, newPosition])
-            const estimatedSpeed = timeDiff > 0 ? segmentDistance / timeDiff : 0
-            console.log(`Segment distance: ${segmentDistance}m, Estimated speed: ${estimatedSpeed} m/s`)
+          if (isLikelyStationary && positions.length > 1) {
+            console.log(`Likely stationary: Speed=${speed || estimatedSpeed} m/s, Distance=${segmentDistance}m - skipping`)
+            return
+          }
 
-            // Prevent initial spikes: limit jumps to 5m in first 5 positions for Walk
-            if (activityType === "Walk" && segmentDistance > 5 && prev.length < 5) {
-              console.log(`Initial distance jump too large: ${segmentDistance}m - skipping`)
-              return prev
-            }
+          // Prevent initial spikes: limit jumps to 5m in first 5 positions for Walk
+          if (activityType === "Walk" && segmentDistance > 5 && positions.length < 5) {
+            console.log(`Initial distance jump too large: ${segmentDistance}m - skipping`)
+            return
+          }
 
-            // Higher distance threshold to filter out noise
-            const distanceThreshold = estimatedSpeed > 5 ? 50 : 15 // Increased to 15m
-            if (segmentDistance < distanceThreshold && prev.length > 1) {
-              console.log(`Distance ${segmentDistance}m below threshold ${distanceThreshold}m - skipping`)
-              return prev
-            }
+          // Higher distance threshold to filter out noise
+          const distanceThreshold = estimatedSpeed > 5 ? 50 : MIN_STATIONARY_DISTANCE
+          if (segmentDistance < distanceThreshold && positions.length > 1) {
+            console.log(`Distance ${segmentDistance}m below threshold ${distanceThreshold}m - skipping`)
+            return
+          }
 
-            lastStablePositionRef.current = newPosition
-            return [...prev, newPosition]
-          })
+          lastStablePositionRef.current = newPosition
+          setPositions((prev) => [...prev, newPosition])
         },
         (err) => {
           let errorMessage = "Unknown error occurred"
@@ -253,7 +252,7 @@ export function TrackingForm({ userId }: TrackingFormProps) {
     } catch (err: any) {
       setError(`Failed to start tracking: ${err.message}. Please ensure location services are enabled.`)
     } finally {
-      setIsLoading(false) // Reset loading after tracking starts or fails
+      setIsLoading(false)
     }
   }
 
