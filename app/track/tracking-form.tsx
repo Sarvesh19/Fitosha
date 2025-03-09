@@ -46,16 +46,23 @@ export function TrackingForm({ userId }: TrackingFormProps) {
     Drive: Infinity, // No limit for driving
   }
 
-  // Recalculate distance whenever positions change
+  // Recalculate distance with a sanity check
   useEffect(() => {
     if (positions.length >= 2) {
       const newDistance = calculateDistance(positions)
-      setDistance(newDistance)
+      // Sanity check: Reset distance if it jumps too high too soon for "Walk"
+      if (newDistance > 50 && elapsedTime < 10 && activityType === "Walk") {
+        console.log("Unrealistic distance detected, resetting:", newDistance)
+        setDistance(0)
+      } else {
+        setDistance(newDistance)
+      }
     } else {
       setDistance(0)
     }
-  }, [positions])
+  }, [positions, elapsedTime, activityType])
 
+  // Handle permissions and cleanup
   useEffect(() => {
     if ("permissions" in navigator) {
       navigator.permissions.query({ name: "geolocation" }).then((result) => {
@@ -101,12 +108,14 @@ export function TrackingForm({ userId }: TrackingFormProps) {
             (position) => {
               const { latitude, longitude, accuracy } = position.coords
               const newPosition: [number, number] = [latitude, longitude]
-
-              // Require accuracy < 30 meters and stability within 5m
-              if (accuracy < 30) {
+              console.log(`Attempt ${attempts + 1}: Position = [${latitude}, ${longitude}], Accuracy = ${accuracy}m`)
+              
+              // Stricter accuracy requirement: < 20m
+              if (accuracy < 20) {
                 if (lastPosition && calculateDistance([lastPosition, newPosition]) < 5) {
                   stabilizedPosition = newPosition
                   clearInterval(interval)
+                  console.log("Stabilized position:", stabilizedPosition)
                   resolve(stabilizedPosition)
                 }
                 lastPosition = newPosition
@@ -116,6 +125,7 @@ export function TrackingForm({ userId }: TrackingFormProps) {
               if (attempts >= maxAttempts) {
                 stabilizedPosition = lastPosition || [latitude, longitude]
                 clearInterval(interval)
+                console.log("Max attempts reached, using:", stabilizedPosition)
                 resolve(stabilizedPosition)
               }
             },
@@ -153,9 +163,15 @@ export function TrackingForm({ userId }: TrackingFormProps) {
 
           console.log('Position update:', { latitude, longitude, accuracy, speed, timestamp: position.timestamp })
 
-          // Skip if accuracy is too low
+          // Stricter accuracy filter: > 50m ignored
           if (accuracy > 50) {
             console.log(`Accuracy too low: ${accuracy}m - skipping`)
+            return
+          }
+
+          // Skip if speed is near zero and we have prior positions
+          if (speed !== null && speed < 0.1 && positions.length > 1) {
+            console.log(`Speed ${speed} m/s too low - skipping`)
             return
           }
 
@@ -175,6 +191,7 @@ export function TrackingForm({ userId }: TrackingFormProps) {
             const lastPosition = prev[prev.length - 1]
             const segmentDistance = calculateDistance([lastPosition, newPosition])
             const estimatedSpeed = timeDiff > 0 ? segmentDistance / timeDiff : 0
+            console.log(`Segment distance: ${segmentDistance}m, Estimated speed: ${estimatedSpeed} m/s`)
 
             // Prevent initial spikes for Walk: limit jumps to 10m in first 5 positions
             if (activityType === "Walk" && segmentDistance > 10 && prev.length < 5) {
@@ -182,9 +199,10 @@ export function TrackingForm({ userId }: TrackingFormProps) {
               return prev
             }
 
-            // Dynamic distance threshold
-            const distanceThreshold = estimatedSpeed > 5 ? 50 : 5
+            // Stricter dynamic distance threshold
+            const distanceThreshold = estimatedSpeed > 5 ? 50 : 10 // Increased from 5 to 10m
             if (segmentDistance < distanceThreshold && prev.length > 1) {
+              console.log(`Distance ${segmentDistance}m below threshold ${distanceThreshold}m - skipping`)
               return prev
             }
 
